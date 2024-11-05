@@ -1,6 +1,6 @@
-import { writeFile } from 'fs/promises';
+// app/api/upload/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import path from 'path';
+import { put } from '@vercel/blob';
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,28 +12,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File dan ID diperlukan" }, { status: 400 });
     }
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    // Dapatkan ekstensi file
-    const extension = file.name.split('.').pop() || 'jpg';
-
-    // Buat nama file yang unik dengan ID dan timestamp
-    const fileName = `${id}-${Date.now()}.${extension}`;
-
-    // Pastikan direktori uploads ada
-    const uploadDir = path.join(process.cwd(), 'public/uploads');
-    
-    try {
-      await writeFile(`${uploadDir}/${fileName}`, buffer);
-    } catch (error) {
-      console.error('Error writing file:', error);
-      return NextResponse.json({ error: "Gagal menyimpan file" }, { status: 500 });
-    }
+    // Upload ke Vercel Blob Storage
+    const blob = await put(`${id}-${Date.now()}-${file.name}`, file, {
+      access: 'public',
+    });
 
     return NextResponse.json({ 
       success: true,
-      fileName: fileName
+      fileName: blob.url
     });
   } catch (error) {
     console.error('Error uploading file:', error);
@@ -41,7 +27,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Atur ukuran maksimal file yang bisa diupload (10MB)
 export const config = {
   api: {
     bodyParser: false,
