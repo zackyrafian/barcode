@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import QRCode from "react-qr-code";
 
 interface QRCodeGeneratorProps {
@@ -11,6 +11,13 @@ interface QRCodeGeneratorProps {
   bgColor: string;
   fgColor: string;
   style?: string;
+}
+
+interface UserData {
+  name: string;
+  id: string;
+  additionalInfo?: string;
+  photoUrl?: string;
 }
 
 const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({ 
@@ -73,13 +80,103 @@ const COLOR_PRESETS = [
 ];
 
 export default function Home() {
-  const [qrValue, setQrValue] = useState("https://example.com");
+  const [userData, setUserData] = useState<UserData>({
+    name: "",
+    id: "",
+    additionalInfo: "",
+  });
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string>("");
+  const [qrValue, setQrValue] = useState("");
   const [size, setSize] = useState(256);
   const [errorLevel, setErrorLevel] = useState<"L" | "M" | "Q" | "H">("M");
   const [bgColor, setBgColor] = useState("#FFFFFF");
   const [fgColor, setFgColor] = useState("#000000");
   const [selectedStyle, setSelectedStyle] = useState("default");
   const qrRef = useRef<HTMLDivElement>(null);
+
+  const getBaseUrl = () => {
+    if (typeof window !== 'undefined') {
+      const protocol = window.location.protocol;
+      const host = window.location.host;
+      return `${protocol}//${host}`;
+    }
+    return '';
+  };
+
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Ukuran foto terlalu besar. Maksimal 10MB");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setPhotoPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+
+    setPhotoFile(file);
+
+    if (userData.id) {
+      await uploadPhoto(file, userData.id);
+    }
+  };
+
+  const uploadPhoto = async (file: File, id: string) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('id', id);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setUserData(prev => ({
+          ...prev,
+          photoUrl: `/uploads/${data.fileName}`
+        }));
+      }
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      alert('Gagal mengunggah foto. Silakan coba lagi.');
+    }
+  };
+
+  const handleIdChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newId = e.target.value;
+    setUserData(prev => ({ ...prev, id: newId }));
+
+    if (photoFile && newId) {
+      await uploadPhoto(photoFile, newId);
+    }
+  };
+
+  useEffect(() => {
+    const generateQRUrl = () => {
+      const dataToEncode = {
+        name: userData.name,
+        id: userData.id,
+        info: userData.additionalInfo,
+        photoUrl: userData.photoUrl
+      };
+      
+      const encodedData = encodeURIComponent(JSON.stringify(dataToEncode));
+      const formattedUrl = `${getBaseUrl()}/[barcode]?data=${encodedData}`;
+      setQrValue(formattedUrl);
+    };
+
+    if (userData.name || userData.id) {
+      generateQRUrl();
+    }
+  }, [userData]);
 
   const downloadQRCode = () => {
     const svg = qrRef.current?.querySelector("svg");
@@ -100,33 +197,93 @@ export default function Home() {
         
         const pngFile = canvas.toDataURL("image/png", 1.0);
         const downloadLink = document.createElement("a");
-        downloadLink.download = `qrcode-${Date.now()}.png`;
+        downloadLink.download = `qrcode-${userData.name}-${Date.now()}.png`;
         downloadLink.href = pngFile;
         downloadLink.click();
       }
     };
 
-    img.src = `data:image/svg+xml;base64,${window.btoa(svgData)}`;
+    img.src = `data:image/svg+xml;base64,${btoa(svgData)}`;
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       <div className="container mx-auto px-4 py-16">
         <div className="max-w-4xl mx-auto">
-          {/* Main Content */}
           <div className="grid md:grid-cols-2 gap-8 bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
             {/* Left Column - Input Controls */}
             <div className="space-y-6">
-              <div className="space-y-4">
+              {/* Required Fields Notice */}
+              <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                * Nama dan ID wajib diisi
+              </div>
+
+              {/* Name Input */}
+              <div>
                 <label className="block font-medium text-gray-700 dark:text-gray-200">
-                  Masukkan Teks atau URL
+                  Nama *
+                </label>
+                <input
+                  type="text"
+                  value={userData.name}
+                  onChange={(e) => setUserData({...userData, name: e.target.value})}
+                  className="w-full px-4 py-2 mt-1 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  required
+                />
+              </div>
+
+              {/* ID Input */}
+              <div>
+                <label className="block font-medium text-gray-700 dark:text-gray-200">
+                  ID *
+                </label>
+                <input
+                  type="text"
+                  value={userData.id}
+                  onChange={handleIdChange}
+                  className="w-full px-4 py-2 mt-1 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  required
+                />
+              </div>
+
+              {/* Photo Input */}
+              <div>
+                <label className="block font-medium text-gray-700 dark:text-gray-200">
+                  Foto (Opsional - Maks. 10MB)
+                </label>
+                <div className="mt-2 flex items-center gap-4">
+                  {photoPreview && (
+                    <div className="relative w-24 h-24">
+                      <Image
+                        src={photoPreview}
+                        alt="Preview"
+                        fill
+                        className="rounded-lg object-cover"
+                      />
+                    </div>
+                  )}
+                  <label className="cursor-pointer px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
+                    {photoFile ? 'Ganti Foto' : 'Upload Foto'}
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Additional Info Input */}
+              <div>
+                <label className="block font-medium text-gray-700 dark:text-gray-200">
+                  Informasi Tambahan (Opsional)
                 </label>
                 <textarea
-                  value={qrValue}
-                  onChange={(e) => setQrValue(e.target.value)}
-                  placeholder="Masukkan teks atau URL"
-                  className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white transition-all duration-200"
-                  rows={4}
+                  value={userData.additionalInfo}
+                  onChange={(e) => setUserData({...userData, additionalInfo: e.target.value})}
+                  className="w-full px-4 py-2 mt-1 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  rows={3}
                 />
               </div>
 
@@ -220,9 +377,17 @@ export default function Home() {
                 style={selectedStyle}
               />
 
+              {/* QR URL Preview */}
+              <div className="w-full text-xs text-gray-500 dark:text-gray-400 break-all">
+                {qrValue}
+              </div>
               <button
                 onClick={downloadQRCode}
-                className="w-full py-3 px-6 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-medium rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-2"
+                disabled={!userData.name || !userData.id}
+                className={`w-full py-3 px-6 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-medium rounded-lg shadow-lg transition-all duration-200 flex items-center justify-center gap-2
+                  ${(!userData.name || !userData.id) 
+                    ? 'opacity-50 cursor-not-allowed' 
+                    : 'hover:from-blue-600 hover:to-purple-600 hover:shadow-xl'}`}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
